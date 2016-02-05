@@ -42,6 +42,20 @@ struct ApplyGradientDescent<CPUDevice, T> {
 };
 
 template <typename T>
+struct ApplyDistGradientDescent<CPUDevice, T> {
+  void operator()(const CPUDevice& d, typename TTypes<T>::Flat var,
+                  typename TTypes<T>::ConstScalar lr,
+                  typename TTypes<T>::ConstFlat grad) {
+    std::cout << "for test ApplyiDistGradientDescent" << std::endl;
+    if (DoInline(var.size())) {
+      var -= grad * lr();
+    } else {
+      var.device(d) -= grad * lr();
+    }
+  }
+};
+
+template <typename T>
 struct ApplyAdagrad<CPUDevice, T> {
   void operator()(const CPUDevice& d, typename TTypes<T>::Flat var,
                   typename TTypes<T>::Flat accum,
@@ -192,6 +206,86 @@ namespace functor {
       typename TTypes<T>::ConstScalar alpha,            \
       typename TTypes<T>::ConstFlat delta);             \
   extern template struct ApplyGradientDescent<GPUDevice, T>;
+DECLARE_GPU_SPEC(float);
+DECLARE_GPU_SPEC(double);
+#undef DECLARE_GPU_SPEC
+}  // namespace functor
+
+REGISTER_KERNELS(GPU, float);
+REGISTER_KERNELS(GPU, double);
+#endif
+#undef REGISTER_KERNELS
+
+template <typename Device, typename T>
+class ApplyDistGradientDescentOp : public OpKernel {
+ public:
+  explicit ApplyDistGradientDescentOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("use_locking", &use_exclusive_lock_));
+  }
+
+  void Compute(OpKernelContext* ctx) override {
+    if (use_exclusive_lock_) {
+      mutex_lock l(*ctx->input_ref_mutex(0));
+      DoValidate(ctx);
+      if (!ctx->status().ok()) return;
+      DoCompute(ctx);
+    } else {
+      DoValidate(ctx);
+      if (!ctx->status().ok()) return;
+      DoCompute(ctx);
+    }
+    ctx->forward_ref_input_to_ref_output(0, 0);
+  }
+
+ private:
+  bool use_exclusive_lock_;
+
+  void DoValidate(OpKernelContext* ctx) {
+    Tensor var = ctx->mutable_input(0, use_exclusive_lock_);
+    OP_REQUIRES(
+        ctx, var.IsInitialized(),
+        errors::FailedPrecondition(
+            "Attempting to use uninitialized variables: ", def().input(0)));
+    const Tensor& alpha = ctx->input(1);
+    OP_REQUIRES(ctx, TensorShapeUtils::IsLegacyScalar(alpha.shape()),
+                errors::InvalidArgument("alpha is not a scalar: ",
+                                        alpha.shape().DebugString()));
+    const Tensor& delta = ctx->input(2);
+    OP_REQUIRES(
+        ctx, var.shape().IsSameSize(delta.shape()),
+        errors::InvalidArgument("var and delta do not have the same shape",
+                                var.shape().DebugString(), " ",
+                                delta.shape().DebugString()));
+  }
+
+  void DoCompute(OpKernelContext* ctx) {
+    const Device& device = ctx->template eigen_device<Device>();
+    Tensor var = ctx->mutable_input(0, use_exclusive_lock_);
+    const Tensor& alpha = ctx->input(1);
+    const Tensor& delta = ctx->input(2);
+    functor::ApplyDistGradientDescent<Device, T>()(
+        device, var.flat<T>(), alpha.scalar<T>(), delta.flat<T>());
+  }
+};
+
+#define REGISTER_KERNELS(D, T)                                                    \
+  REGISTER_KERNEL_BUILDER(                                                        \
+      Name("ApplyDistGradientDescent").Device(DEVICE_##D).TypeConstraint<T>("T"), \
+      ApplyDistGradientDescentOp<D##Device, T>);
+
+REGISTER_KERNELS(CPU, float);
+REGISTER_KERNELS(CPU, double);
+
+#if GOOGLE_CUDA
+// Forward declarations of the functor specializations for GPU.
+namespace functor {
+#define DECLARE_GPU_SPEC(T)                                     \
+  template <>                                                   \
+  void ApplyDistGradientDescent<GPUDevice, T>::operator()(      \
+      const GPUDevice& d, typename TTypes<T>::Flat var,         \
+      typename TTypes<T>::ConstScalar alpha,                    \
+      typename TTypes<T>::ConstFlat delta);                     \
+  extern template struct ApplyDistGradientDescent<GPUDevice, T>;
 DECLARE_GPU_SPEC(float);
 DECLARE_GPU_SPEC(double);
 #undef DECLARE_GPU_SPEC

@@ -35,6 +35,24 @@ use_locking: If True, the subtraction will be protected by a lock;
   otherwise the behavior is undefined, but may exhibit less contention.
 )doc");
 
+REGISTER_OP("ApplyDistGradientDescent")
+    .Input("var: Ref(T)")
+    .Input("alpha: T")
+    .Input("delta: T")
+    .Output("out: Ref(T)")
+    .Attr("T: numbertype")
+    .Attr("use_locking: bool = false")
+    .Doc(R"doc(
+Update '*var' by subtracting 'alpha' * 'delta' from it.
+
+var: Should be from a Variable().
+alpha: Scaling factor. Must be a scalar.
+delta: The change.
+out: Same as "var".
+use_locking: If True, the subtraction will be protected by a lock;
+  otherwise the behavior is undefined, but may exhibit less contention.
+)doc");
+
 REGISTER_OP("ApplyAdagrad")
     .Input("var: Ref(T)")
     .Input("accum: Ref(T)")

@@ -27,5 +27,6 @@ sh_binary(
         "//tensorflow/models/rnn/ptb:package",
         "//tensorflow/models/rnn/translate:package",
         "//tensorflow/tensorboard",
+        "//tensorflow/psstore:psstore_bin",
     ],
 )

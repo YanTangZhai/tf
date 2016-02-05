@@ -106,6 +106,13 @@ def _ApplyGradientDescentShape(op):
   delta_shape = op.inputs[2].get_shape().merge_with(var_shape)
   return [delta_shape]
 
+@ops.RegisterShape("ApplyDistGradientDescent")
+def _ApplyDistGradientDescentShape(op):
+  """Shape function for the ApplyDistGradientDescent op."""
+  var_shape = op.inputs[0].get_shape()
+  _AssertInputIsScalar(op, 1)  # alpha
+  delta_shape = op.inputs[2].get_shape().merge_with(var_shape)
+  return [delta_shape]
 
 @ops.RegisterShape("SparseApplyAdagrad")
 def _SparseApplyAdagradShape(op):

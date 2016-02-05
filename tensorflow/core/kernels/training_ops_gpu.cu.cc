@@ -38,6 +38,18 @@ struct ApplyGradientDescent<GPUDevice, T> {
 };
 
 template <typename T>
+struct ApplyDistGradientDescent<GPUDevice, T> {
+  void operator()(const GPUDevice& d, typename TTypes<T>::Flat var,
+                  typename TTypes<T>::ConstScalar alpha,
+                  typename TTypes<T>::ConstFlat delta) {
+    Eigen::array<typename TTypes<T>::Tensor::Index, 1> bcast;
+    bcast[0] = delta.dimension(0);
+    Eigen::Sizes<1> single;
+    var.device(d) -= alpha.reshape(single).broadcast(bcast) * delta;
+  }
+};
+
+template <typename T>
 struct ApplyAdagrad<GPUDevice, T> {
   void operator()(const GPUDevice& d, typename TTypes<T>::Flat var,
                   typename TTypes<T>::Flat accum,
@@ -125,6 +137,9 @@ struct ApplyRMSProp<GPUDevice, T> {
 
 template struct functor::ApplyGradientDescent<GPUDevice, float>;
 template struct functor::ApplyGradientDescent<GPUDevice, double>;
+
+template struct functor::ApplyDistGradientDescent<GPUDevice, float>;
+template struct functor::ApplyDistGradientDescent<GPUDevice, double>;
 
 template struct functor::ApplyAdagrad<GPUDevice, float>;
 template struct functor::ApplyAdagrad<GPUDevice, double>;

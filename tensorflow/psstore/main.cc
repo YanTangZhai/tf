@@ -37,6 +37,7 @@ int main(int argc, char *argv[]) {
   } else {
     std::cout << "Fail" << std::endl;
   }
+  std::this_thread::sleep_for(std::chrono::seconds(3600));
   delete ps;
   ps = nullptr;
   return 0;

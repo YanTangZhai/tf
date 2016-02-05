@@ -27,6 +27,7 @@ of the subclasses.
 
 @@Optimizer
 
+@@DistGradientDescentOptimizer
 @@GradientDescentOptimizer
 @@AdagradOptimizer
 @@MomentumOptimizer
@@ -136,6 +137,7 @@ from tensorflow.python.training.moving_averages import ExponentialMovingAverage
 from tensorflow.python.training.optimizer import Optimizer
 from tensorflow.python.training.rmsprop import RMSPropOptimizer
 from tensorflow.python.training.gradient_descent import GradientDescentOptimizer
+from tensorflow.python.training.dist_gradient_descent import DistGradientDescentOptimizer
 
 # Utility classes for training.
 from tensorflow.python.training.coordinator import Coordinator
