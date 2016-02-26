@@ -63,7 +63,7 @@ void Van::Start() {
   int max_retry = is_scheduler_ ? 40 : 1;
   for (int i = 0; i < max_retry; ++i) {
     auto address = addr + std::to_string(my_node_.port);
-    std::cout << "for test receiver address: " << address << std::endl;
+    VLOG(0) << "receiver address: " << address;
     if (zmq_bind(receiver_, address.c_str()) == 0) break;
     CHECK_NE(i, max_retry - 1)
         << "bind failed after " << max_retry << " retries";
@@ -150,7 +150,7 @@ void Van::Connect(const Node& node) {
     addr = "ipc:///tmp/" + std::to_string(node.port);
   }
 
-  std::cout << "for test connect addr: " << addr << std::endl;
+  VLOG(0) << "connect addr: " << addr;
 
   if (zmq_connect(sender, addr.c_str()) != 0) {
     LOG(FATAL) <<  "connect to " + addr + " failed: " + zmq_strerror(errno);
@@ -172,7 +172,6 @@ void FreeData(void *data, void *hint) {
 }
 
 int Van::Send_(const Message& msg) {
-  std::cout << "for test send msg cmd " << msg.meta.control.cmd << std::endl;
   std::lock_guard<std::mutex> lk(mu_);
 
   // find the socket
@@ -181,7 +180,6 @@ int Van::Send_(const Message& msg) {
   auto it = senders_.find(id);
   if (it == senders_.end()) {
     LOG(WARNING) << "there is no socket to node " + id;
-    std::cout    << "there is no socket to node " + id << std::endl;
     return -1;
   }
   void *socket = it->second;
@@ -202,8 +200,6 @@ int Van::Send_(const Message& msg) {
     if (errno == EINTR) continue;
     LOG(WARNING) << "failed to send message to node [" << id
                  << "] errno: " << errno << " " << zmq_strerror(errno);
-    std::cout    << "failed to send message to node [" << id
-                 << "] errno: " << errno << " " << zmq_strerror(errno) << std::endl;
     return -1;
   }
   int send_bytes = meta_size;
@@ -221,15 +217,11 @@ int Van::Send_(const Message& msg) {
       LOG(WARNING) << "failed to send message to node [" << id
                    << "] errno: " << errno << " " << zmq_strerror(errno)
                    << ". " << i << "/" << n;
-      std::cout    << "failed to send message to node [" << id
-                   << "] errno: " << errno << " " << zmq_strerror(errno)
-                   << ". " << i << "/" << n << std::endl;
       return -1;
     }
     send_bytes += data_size;
   }
   send_bytes_ += send_bytes;
-  std::cout << "for test send bytes " << send_bytes_ << std::endl;
   return send_bytes;
 }
 
@@ -256,22 +248,17 @@ int Van::Recv(Message* msg) {
     zmq_msg_t* zmsg = new zmq_msg_t;
     CHECK(zmq_msg_init(zmsg) == 0) << zmq_strerror(errno);
     while (true) {
-      std::cout << "for test try recv " << std::endl;
       if (zmq_msg_recv(zmsg, receiver_, 0) != -1) {
-        std::cout << "for test received a msg" << std::endl;
         break;
       }
       if (errno == EINTR) continue;
       LOG(WARNING) << "failed to receive message. errno: "
                    << errno << " " << zmq_strerror(errno);
-      std::cout    << "failed to receive message. errno: "
-                   << errno << " " << zmq_strerror(errno) << std::endl;
       return -1;
     }
     char* buf = CHECK_NOTNULL((char *)zmq_msg_data(zmsg));
     size_t size = zmq_msg_size(zmsg);
     recv_bytes += size;
-    std::cout << "for test recv msg bytes " << recv_bytes << std::endl;
 
     if (i == 0) {
       // identify
@@ -298,8 +285,7 @@ int Van::Recv(Message* msg) {
     }
   }
   recv_bytes_ += recv_bytes;
-  std::cout << "for test recv msg bytes " << recv_bytes
-              << " cmd " << msg->meta.control.cmd << std::endl;
+  //VLOG(0) << "Van recv bytes " << recv_bytes;
   return recv_bytes;
 }
 
@@ -309,7 +295,6 @@ void Van::Receiving() {
 
   while (true) {
     Message msg; CHECK_GE(Recv(&msg), 0);
-    std::cout << "for test receiving msg cmd " << msg.meta.control.cmd << std::endl;
     if (!msg.meta.control.empty()) {
       // do some management
       auto& ctrl = msg.meta.control;

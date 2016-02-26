@@ -20,6 +20,7 @@ namespace tensorflow {
 namespace psstore {
 static const int kStopServer = -1;
 static const int kSyncMode = -2;
+static const int kInitUpdater = -3;
 
 /**
  * \brief executor runs a function using the thread called \ref Start
@@ -116,11 +117,42 @@ class PSStoreDistServer {
   }
 
  private:
+  template<typename T>
+  void Sub(Tensor& var, const std::vector<Tensor>& grads) {
+    int size = grads.size();
+    if (size > 0) {
+      //Tensor a(grads[0].dtype(), grads[0].shape());
+      Tensor a(grads[0]);
+      auto ta = a.flat<T>();
+      //ta = grads[0].flat<T>();
+      //VLOG(0) << "for test ta begin " << a.DebugString();
+      for (int i=1; i<size; i++) {
+        ta += grads[i].flat<T>();
+      }
+      //VLOG(0) << "for test ta after " << a.DebugString();
+      var.flat<T>() -= ta / (static_cast<T>(size));
+      //VLOG(0) << "for test var " << var.DebugString();
+    }
+  }
+
   void CommandHandle(const ps::SimpleData& recved, ps::SimpleApp* app) {
+    std::string res_body;
 	  if (recved.head == kStopServer) {
 	    exec_.Stop();
 	  } else if (recved.head == kSyncMode) {
 	    sync_mode_ = true;
+	    VLOG(0) << "Sync mode " << sync_mode_;
+	  } else if (recved.head == kInitUpdater) {
+	    std::string data_type_name = recved.body;
+	    VLOG(0) << "InitUpdater args " << data_type_name;
+	    if (typeid(float).name() == data_type_name) {
+	      updater_ = std::bind(&PSStoreDistServer::Sub<float>, this, std::placeholders::_1, std::placeholders::_2);
+	    } else if (typeid(double).name() == data_type_name) {
+	      updater_ = std::bind(&PSStoreDistServer::Sub<double>, this, std::placeholders::_1, std::placeholders::_2);
+	    } else {
+	      res_body = "set updater function has error: unknown data type name " + data_type_name;
+	      VLOG(0) << res_body;
+	    }
 	  } else {
 	    // let the main thread to execute ctrl, which is necessary for python
 	    exec_.Exec([this, recved]() {
@@ -128,7 +160,7 @@ class PSStoreDistServer {
 	      controller_(recved.head, recved.body);
 	    });
 	  }
-	  app->Response(recved);
+	  app->Response(recved, res_body);
   }
 
   void DataHandle(const ps::KVMeta& req_meta,
@@ -145,26 +177,27 @@ class PSStoreDistServer {
 	  auto& stored = store_[key];
     if (req_meta.push) {
       TensorProto tp;
-	    tp.ParseFromString((char*)req_data.vals.data());
+	    tp.ParseFromArray(req_data.vals.data(), req_data.vals.size());
 	    Tensor recved;
 	    bool res = recved.FromProto(tp);
-	    LOG(INFO) << res;
-	    if (stored.IsInitialized()) {
+	    if (!res) {
+	      VLOG(0) << "Parse received data failed!";
+	      return;
+	    }
+	    if (!stored.IsInitialized()) {
 	      // model's parameters initialization
 	      stored = recved;
 	      server->Response(req_meta);
-	    } else {
+	    } else if (sync_mode_) {
 	      // synced push
 	      auto& merge_buf = merge_buf_[key];
 	      merge_buf.request.push_back(req_meta);
 	      merge_buf.buf.push_back(recved);
 
 	      if (merge_buf.request.size() == (size_t)ps::NumWorkers()) {
-	        // let the main thread to execute updater_, which is necessary for
-	        // python
 	        exec_.Exec([this, key, &merge_buf, &stored](){
 	            CHECK(updater_);
-	            updater_(key, merge_buf.buf, &stored);
+	            updater_(stored, merge_buf.buf);
 	        });
 	        for (const auto& req : merge_buf.request) {
 	          server->Response(req);
@@ -172,20 +205,35 @@ class PSStoreDistServer {
 	        merge_buf.request.clear();
 	        merge_buf.buf.clear();
 	      }
+	    } else {
+	      exec_.Exec([this, key, &recved, &stored](){
+	          CHECK(updater_);
+	          std::vector<Tensor> v;
+	          v.push_back(recved);
+	          updater_(stored, v);
+	      });
+	      server->Response(req_meta);
 	    }
 	  } else {
 	    // pull
 	    ps::KVPairs<char> response;
-	    CHECK(!stored.IsInitialized()) << "init " << key << " first";
+	    CHECK(stored.IsInitialized()) << "init " << key << " first";
 	    TensorProto tp;
 	    stored.AsProtoField(&tp);
-	    const string data = tp.SerializeAsString();
-	    int len = data.size();
+	    int size = tp.ByteSize();
+	    char *data = new char[size];
+	    tp.SerializeToArray(data, size);
+	    ps::SArray<char> vals(data, size, true);
 	    response.keys = req_data.keys;
-	    response.lens = {len};
-	    response.vals.CopyFrom(static_cast<const char*>(data.c_str()), len);
+	    response.lens = {size};
+	    response.vals = vals;
+	    //VLOG(0) << "for test pull key " << key << " value " << stored.DebugString();
 	    server->Response(req_meta, response);
 	  }
+  }
+
+  void ApplyGradientDescent(int key, const std::vector<Tensor>& merged, Tensor* stored) {
+
   }
 
   inline int DecodeKey(ps::Key key) {
@@ -196,7 +244,7 @@ class PSStoreDistServer {
   /**
    * \brief user defined
    */
-  bool sync_mode_;
+  bool sync_mode_ = false;
   PSStore::Controller controller_;
   PSStore::Updater updater_;
 

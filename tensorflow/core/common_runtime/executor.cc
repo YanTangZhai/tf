@@ -931,6 +931,8 @@ void ExecutorState::Process(TaggedNode tagged_node, int64 scheduled_usec) {
         return OutputAttributes(&impl_->alloc_attr_, node, op_kernel, index);
       };
 
+      VLOG(1) << "for test Process node: " << id << " kernel: " << op_kernel->name();
+
       async = op_kernel->AsAsync();
       if (async) {
         // Asynchronous computes.
@@ -1230,6 +1232,7 @@ void ExecutorState::ActivateNode(const Node* node, const bool is_dead,
     // Add dst to the ready queue if it's ready
     if (dst_ready) {
       dst_dead = dst_dead && !IsControlTrigger(dst_node);
+      VLOG(1) << "for test ActivateNode src_node: " << node->id() << " dst_node: " << dst_node->id();
       ready->push_back(
           TaggedNode(dst_node, output_frame, output_iter, dst_dead));
       output_iter_state->outstanding_ops++;

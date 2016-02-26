@@ -15,9 +15,12 @@ limitations under the License.
 
 #define EIGEN_USE_THREADS
 
-#include "tensorflow/core/kernels/training_ops.h"
+#include <execinfo.h>
 
+#include "tensorflow/core/kernels/training_ops.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/psstore/psstore.h"
+#include "tensorflow/core/lib/hash/hash.h"
 
 namespace tensorflow {
 
@@ -33,20 +36,6 @@ struct ApplyGradientDescent<CPUDevice, T> {
   void operator()(const CPUDevice& d, typename TTypes<T>::Flat var,
                   typename TTypes<T>::ConstScalar lr,
                   typename TTypes<T>::ConstFlat grad) {
-    if (DoInline(var.size())) {
-      var -= grad * lr();
-    } else {
-      var.device(d) -= grad * lr();
-    }
-  }
-};
-
-template <typename T>
-struct ApplyDistGradientDescent<CPUDevice, T> {
-  void operator()(const CPUDevice& d, typename TTypes<T>::Flat var,
-                  typename TTypes<T>::ConstScalar lr,
-                  typename TTypes<T>::ConstFlat grad) {
-    std::cout << "for test ApplyiDistGradientDescent" << std::endl;
     if (DoInline(var.size())) {
       var -= grad * lr();
     } else {
@@ -185,6 +174,9 @@ class ApplyGradientDescentOp : public OpKernel {
     const Tensor& delta = ctx->input(2);
     functor::ApplyGradientDescent<Device, T>()(
         device, var.flat<T>(), alpha.scalar<T>(), delta.flat<T>());
+
+    int id = Hash64(this->name());
+    //VLOG(0) << "for test Apply key " << id << " value " << var.DebugString();
   }
 };
 
@@ -221,6 +213,24 @@ class ApplyDistGradientDescentOp : public OpKernel {
  public:
   explicit ApplyDistGradientDescentOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
     OP_REQUIRES_OK(ctx, ctx->GetAttr("use_locking", &use_exclusive_lock_));
+    if (getenv("DMLC_NUM_WORKER") == NULL) {
+      putenv("DMLC_NUM_WORKER=1");
+    }
+    if (getenv("DMLC_NUM_SERVER") == NULL) {
+      putenv("DMLC_NUM_SERVER=1");
+    }
+    if (getenv("TENSORFLOW_ROLE") == NULL) {
+      putenv("TENSORFLOW_ROLE=worker");
+    }
+    if (getenv("DMLC_PS_ROOT_URI") == NULL) {
+      putenv("DMLC_PS_ROOT_URI=127.0.0.1");
+    }
+    if (getenv("DMLC_PS_ROOT_PORT") == NULL) {
+      putenv("DMLC_PS_ROOT_PORT=22228");
+    }
+    std::string tmp = typeid(T).name();
+    ps = tensorflow::psstore::PSStore::Get("dist_sync", tmp);
+    id = Hash64(this->name());
   }
 
   void Compute(OpKernelContext* ctx) override {
@@ -239,6 +249,9 @@ class ApplyDistGradientDescentOp : public OpKernel {
 
  private:
   bool use_exclusive_lock_;
+  tensorflow::psstore::PSStore *ps = nullptr;
+  int id;
+  bool first = true;
 
   void DoValidate(OpKernelContext* ctx) {
     Tensor var = ctx->mutable_input(0, use_exclusive_lock_);
@@ -261,10 +274,20 @@ class ApplyDistGradientDescentOp : public OpKernel {
   void DoCompute(OpKernelContext* ctx) {
     const Device& device = ctx->template eigen_device<Device>();
     Tensor var = ctx->mutable_input(0, use_exclusive_lock_);
+    if (first) {
+      ps->Init(id, var);
+      first = false;
+    }
     const Tensor& alpha = ctx->input(1);
-    const Tensor& delta = ctx->input(2);
-    functor::ApplyDistGradientDescent<Device, T>()(
-        device, var.flat<T>(), alpha.scalar<T>(), delta.flat<T>());
+    const Tensor& deltaA = ctx->input(2);
+    Tensor deltaB = Tensor(deltaA.dtype(), deltaA.shape());
+    deltaB.flat<T>() = deltaA.flat<T>() * alpha.scalar<T>()();
+    ps->Push(id, deltaB);
+    Tensor varB = Tensor(var.dtype(), var.shape());
+    bool res = ps->Pull(id, varB);
+    var.flat<T>() = varB.flat<T>();
+    //VLOG(0) << "for test ApplyDist key " << id << " res " << res << " value " << varB.DebugString();
+    //VLOG(0) << "for test ApplyDist key " << id << " after value " << var.DebugString();
   }
 };
 

@@ -100,7 +100,6 @@ Customer* Postoffice::GetCustomer(int id, int timeout) const {
 }
 
 void Postoffice::Barrier(int node_group) {
-  std::cout << "for test start barrier" << std::endl;
   if (GetNodeIDs(node_group).size() <= 1) return;
   auto role = van_->my_node().role;
   if (role == Node::SCHEDULER) {
@@ -119,8 +118,6 @@ void Postoffice::Barrier(int node_group) {
   req.meta.control.cmd = Control::BARRIER;
   req.meta.control.barrier_group = node_group;
   CHECK_GT(van_->Send(req), 0);
-
-  std::cout << "for test barrier wait" << std::endl;
   barrier_cond_.wait(ulk, [this] {
       return barrier_done_;
     });

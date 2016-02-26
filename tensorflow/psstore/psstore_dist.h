@@ -34,6 +34,7 @@ class PSStoreDist : public PSStore {
   }
 
   ~PSStoreDist() {
+    VLOG(0) << "Begin stopping";
     if (IsWorkerNode()) {
       if (get_rank() == 0) {
         // stop the executor at servers
@@ -54,61 +55,72 @@ class PSStoreDist : public PSStore {
   void Init(const int key,
             const Tensor& value) override {
     if (get_rank() == 0) {
-      Push(key, value, 0);
-    } else {
-      // do nothing
+      cache_[key] = Push(key, value, 0);
+    }
+    Barrier();
+  }
+
+  void InitUpdater(const std::string& args) override {
+    if (get_rank() == 0) {
+      this->SendCommandToServers(kInitUpdater, args);
     }
     Barrier();
   }
 
   void Run() override {
-    std::cout << "Begin running" << std::endl;
+    VLOG(0) << "Begin running.";
     if (IsWorkerNode()) {
       ps::Start("tensorflow_worker\0");
-      std::cout << "I am worker." << std::endl;
+      VLOG(0) << "I am worker.";
     } else if (IsServerNode()) {
       ps::Start("tensorflow_server\0");
-      std::cout << "I am server." << std::endl;
+      VLOG(0) << "I am server.";
       if (server_) server_->Run();
     } else if (IsSchedulerNode()) {
       ps::Start("tensorflow_scheduler\0");
-      std::cout << "I am scheduler." << std::endl;
+      VLOG(0) << "I am scheduler.";
     } else {
-      std::cout << "Surprise!!!" << std::endl;
+      VLOG(0) << "Surprise!!!";
     }
   }
 
-  void Push(const int key,
+  int Push(const int key,
             const Tensor& value,
-              int priority) override {
+            int priority = 0) override {
     TensorProto tp;
     value.AsProtoField(&tp);
-    int size = tp.ByteSize();
-    char* data = new char[size];
-    tp.SerializeToArray(data, size);
-    PSKV& pskv = EncodeKey(key, size);
-
-    ps::SArray<char> vals(data, size, false);
-    CHECK_NOTNULL(ps_worker_)->ZPush(
+    int tSize = tp.ByteSize();
+    char *data = new char[tSize];
+    tp.SerializeToArray(data, tSize);
+    PSKV& pskv = EncodeKey(key, tSize);
+    ps::SArray<char> vals(data, tSize, true);
+    //VLOG(0) << "Push key " << key << " value " << value.DebugString();
+    int ts = CHECK_NOTNULL(ps_worker_)->ZPush(
       pskv.keys, vals, pskv.lens, 0, nullptr);
-    cache_[key] = size;
-    delete data;
+    CHECK_NOTNULL(ps_worker_)->Wait(ts);
+    return tSize;
   }
 
-  void Pull(const int key,
-            Tensor* value,
-            int priority) override {
+  bool Pull(const int key,
+            Tensor& value,
+            int priority = 0) override {
     size_t size = cache_[key];
+    char *data = new char[size];
     // convert to ps keys
     PSKV& pskv = EncodeKey(key, size);
     // issue pull, false means no delete
-    auto vals = new ps::SArray<char>(size);
-    CHECK_NOTNULL(ps_worker_)->ZPull(
-      pskv.keys, vals, &pskv.lens, 0, nullptr);
+    auto vals = new ps::SArray<char>(data, size, false);
+    int ts = CHECK_NOTNULL(ps_worker_)->ZPull(
+      pskv.keys, vals, &pskv.lens, 0, [vals](){delete vals;});
+    CHECK_NOTNULL(ps_worker_)->Wait(ts);
     TensorProto tp;
-    tp.ParseFromArray(vals->data(), static_cast<int>(vals->size()));
-    bool res = value->FromProto(tp);
-    LOG(INFO) << res;
+    tp.ParseFromArray(data, size);
+    bool res = value.FromProto(tp);
+    if (data != nullptr) {
+      delete data;
+      data = nullptr;
+    }
+    return res;
   }
 
   void set_updater(const Updater& updater) override {

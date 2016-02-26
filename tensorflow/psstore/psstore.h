@@ -21,6 +21,11 @@ class PSStore {
   /*! \brief virtual destructor */
   virtual ~PSStore() {}
 
+  /**
+   * \brief the prototype of user-defined updater
+   */
+  typedef std::function<void(Tensor&, std::vector<Tensor>&)> Updater;
+
   /*!
    * \brief Factory function to create a new PSStore.
    * \param type The type of the psstore,
@@ -31,7 +36,15 @@ class PSStore {
    *   - 'dist_*' : multi-machines
    * \return a new created KVStore.
    */
-  static PSStore *Create(const char *type = "local");
+
+  static PSStore* Create(const char *type = "local", const std::string& args = "");
+
+  /*!
+   * \return PSStore singleton.
+   */
+  static PSStore* Get(const char *type, const std::string& args = "");
+
+  static std::shared_ptr<PSStore> _GetSharedRef(const char *type, const std::string& args = "");
 
   virtual void Run() = 0;
 
@@ -60,6 +73,9 @@ class PSStore {
   //                  const std::vector<Tensor>& values) = 0;
   virtual void Init(const int key,
                     const Tensor& value) = 0;
+
+  virtual void InitUpdater(const std::string& args) = 0;
+
   /*!
    * \brief push a list of key-value pairs into the store
    *
@@ -99,9 +115,10 @@ class PSStore {
   //virtual void Push(const std::vector<int>& keys,
   //                  const std::vector<Tensor>& values,
   //                  int priority = 0)  = 0;
-  virtual void Push(const int key,
+  virtual int Push(const int key,
                     const Tensor& value,
                     int priority = 0) = 0;
+
   /*!
    * \brief pull a list of key-value pairs from the store
    *
@@ -128,14 +145,10 @@ class PSStore {
   //virtual void Pull(const std::vector<int>& keys,
   //                  const std::vector<Tensor*>& values,
   //                  int priority = 0) = 0;
-  virtual void Pull(const int key,
-                    Tensor* value,
+  virtual bool Pull(const int key,
+                    Tensor& value,
                     int priority = 0) = 0;
 
-  /**
-   * \brief the prototype of user-defined updater
-   */
-  typedef std::function<void(int, const std::vector<Tensor>&, Tensor*)> Updater;
   /*!
    * \brief set an updater
    *
@@ -146,7 +159,6 @@ class PSStore {
    * \param updater user-defined updater, default is assign
    */
   virtual void set_updater(const Updater& updater) {
-    CHECK(updater) << "invalid updater";
     updater_ = updater;
   }
 

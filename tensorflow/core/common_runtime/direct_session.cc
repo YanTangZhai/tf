@@ -18,6 +18,8 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include <execinfo.h>
+
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/executor.h"
 #include "tensorflow/core/common_runtime/rendezvous_mgr.h"
@@ -198,6 +200,23 @@ Status DirectSession::Run(const std::vector<std::pair<string, Tensor>>& inputs,
     }
   }
 
+//  std::string tmp = "target ";
+//  for (const auto& it : target_nodes) {
+//    tmp += it;
+//    tmp += "; ";
+//  }
+
+//  void *buffer[100];
+//  int n = backtrace(buffer,10);
+//  char **str = backtrace_symbols(buffer, n);
+//
+//  for (int i = 0; i < n; i++)
+//  {
+//    printf("%d:  %s\n", i, str[i]);
+//  }
+
+//  VLOG(0) << "for test DirectSession run " << tmp;
+
   // Extract the inputs names for this run of the session.
   std::vector<string> input_tensor_names;
   input_tensor_names.reserve(inputs.size());
@@ -231,6 +250,7 @@ Status DirectSession::Run(const std::vector<std::pair<string, Tensor>>& inputs,
   // Start parallel Executors.
   Notification executors_done;
   const int num_executors = executors_and_keys->device_executors.size();
+  //std::cout << "for test num_executors: " << num_executors << std::endl;
   ExecutorBarrier* barrier = new ExecutorBarrier(
       num_executors, rendez, [&executors_done, &s](const Status& ret) {
         s = ret;

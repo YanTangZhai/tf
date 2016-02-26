@@ -797,6 +797,7 @@ tf_py_wrap_cc(
         ":py_record_reader_lib",
         ":py_record_writer_lib",
         ":tf_session_helper",
+        "//tensorflow/psstore:psstore_lib",
         "//util/python:python_headers",
     ],
 )

@@ -4,7 +4,6 @@
 #include "./psstore.h"
 
 int main(int argc, char *argv[]) {
-  std::cout << "argc: " << argc << std::endl;
   if (getenv("DMLC_NUM_WORKER") == NULL) {
     putenv("DMLC_NUM_WORKER=1");
   }
@@ -32,14 +31,13 @@ int main(int argc, char *argv[]) {
   if (getenv("DMLC_PS_ROOT_PORT") == NULL) {
     putenv("DMLC_PS_ROOT_PORT=22228");
   }
-  std::cout << "role: " << getenv("TENSORFLOW_ROLE") << std::endl;
   tensorflow::psstore::PSStore *ps = tensorflow::psstore::PSStore::Create("dist_sync");
   if (ps != nullptr) {
-    std::cout << "Success" << std::endl;
+    std::cout << "START Success" << std::endl;
   } else {
-    std::cout << "Fail" << std::endl;
+    std::cout << "START Fail" << std::endl;
   }
-  std::this_thread::sleep_for(std::chrono::seconds(3600));
+  //std::this_thread::sleep_for(std::chrono::seconds(3600));
   delete ps;
   ps = nullptr;
   return 0;

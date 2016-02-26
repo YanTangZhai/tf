@@ -103,7 +103,7 @@ struct Meta {
   /** \brief default constructor */
   Meta() : head(kEmpty), customer_id(kEmpty), timestamp(kEmpty),
            sender(kEmpty), recver(kEmpty),
-           request(false), simple_app(false) {}
+           request(false), push(false), simple_app(false) {}
   /** \brief an int head */
   int head;
   /** \brief the unique id of the customer is messsage is for*/

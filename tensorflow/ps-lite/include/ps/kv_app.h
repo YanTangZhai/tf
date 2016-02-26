@@ -497,7 +497,6 @@ void KVWorker<Val>::Send(int timestamp, bool push, int cmd, const KVPairs<Val>& 
   }
 }
 
-
 template <typename Val>
 void KVWorker<Val>::Process(const Message& msg) {
   if (msg.meta.simple_app) {
